@@ -1,113 +1,188 @@
-import './App.css';
 import * as React from 'react';
 
 
+const API_ENDPOINT = 'https://hn.algolia.com/api/v1/search?query=';
+
+const useSemiPersistentState = (key, initialState) => {
+  const [value, setValue] = React.useState(
+    localStorage.getItem(key) || initialState
+  );
+
+  React.useEffect(() => {
+    localStorage.setItem(key, value);
+  }, [value, key]);
+
+  return [value, setValue];
+};
+
+const storiesReducer = (state, action) => {
+  switch (action.type) {
+    case 'STORIES_FETCH_INIT':
+      return {
+        ...state,
+        isLoading: true,
+        isError: false,
+      };
+    case 'STORIES_FETCH_SUCCESS':
+      return {
+        ...state,
+        isLoading: false,
+        isError: false,
+        data: action.payload,
+      };
+    case 'STORIES_FETCH_FAILURE':
+      return {
+        ...state,
+        isLoading: false,
+        isError: true,
+      };
+    case 'REMOVE_STORY':
+      return {
+        ...state,
+        data: state.data.filter(
+          (story) => action.payload.objectID !== story.objectID
+        ),
+      };
+    default:
+      throw new Error();
+  }
+};
+
 
 const App = () => {
-  const stories = [
-    {
-      title: 'React',
-      url: 'https://reactjs.org/',
-      author: 'Jordan Walke',
-      num_comments: 3,
-      points: 4,
-      objectID: 0,
-    },
-    {
-      title: 'Redux',
-      url: 'https://redux.js.org/',
-      author: 'Dan Abramov, Andrew Clark',
-      num_comments: 2,
-      points: 5,
-      objectID: 1,
-    },
-  ];
+  const [searchTerm, setSearchTerm] = useSemiPersistentState(
+    'search',
+    'React'
+  );
 
-  const useSemiPersistentState = (key, initialState) => {
-    const [value, setValue] = React.useState(
-      localStorage.getItem(key) || initialState);
-    React.useEffect(() => {
-      localStorage.setItem(key, value);
-    }, [value,key]);
-    return [value, setValue];
-  }
-  const [searchTerm, setSearchTerm] = useSemiPersistentState('search','React');
-
-  console.log(searchTerm);
-  console.log(typeof searchTerm);
+  const [stories, dispatchStories] = React.useReducer(
+    storiesReducer,
+    { data: [], isLoading: false, isError: false }
+  );
 
 
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isError, setIsError] = React.useState(false);
 
-  const handleSearch = (event) => {
-    //console.log("from App "+event.target.value);
-    setSearchTerm(event.target.value);
-    //localStorage.setItem('search', event.target.value);
+  React.useEffect(() => {
+    dispatchStories({ type: 'STORIES_FETCH_INIT' });
+
+    fetch(`${API_ENDPOINT}react`)
+      .then((response) => response.json())
+      .then((result) => {
+        console.log('Testttttttt');
+        console.log(result.hits);
+        dispatchStories({
+          type: 'STORIES_FETCH_SUCCESS',
+          payload: result.hits,
+        });
+        //console.log(stories);
+      }).catch(() =>
+        dispatchStories({ type: 'STORIES_FETCH_FAILURE' }));
+  }, []);
+
+  const handleRemoveStory = (item) => {
+    dispatchStories({
+      type: 'REMOVE_STORY',
+      payload: item,
+    });
   };
 
-  const searchedStories = stories.filter(story => (story.title.toLowerCase().includes(searchTerm.toLowerCase())));
+  const handleSearch = (event) => {
+    setSearchTerm(event.target.value);
+  };
+
+  console.log(stories);
+  const searchedStories = stories.data.filter((story) =>
+    story.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div>
       <h1>My Hacker Stories</h1>
-      <Search search={searchTerm} onSearch={handleSearch} />
+
+      <InputWithLabel
+        id="search"
+        value={searchTerm}
+        isFocused
+        onInputChange={handleSearch}
+      >
+        <strong>Search:</strong>
+      </InputWithLabel>
+
       <hr />
 
-      <List list={searchedStories} />
+      {isError && <p>Something went wrong ...</p>}
 
+      {isLoading ? (
+        <p>Loading ...</p>
+      ) : (
+        <List
+          list={searchedStories}
+          onRemoveItem={handleRemoveStory}
+        />
+      )}
     </div>
-
   );
-}
+};
 
-const Search = ({ search, onSearch }) => {
-  //const [searchTerm, setSearchTerm] =React.useState('');
-  /* const handleChange = (event) => {
-    setSearchTerm(event.target.value);
+const InputWithLabel = ({
+  id,
+  value,
+  type = 'text',
+  onInputChange,
+  isFocused,
+  children,
+}) => {
+  const inputRef = React.useRef();
 
-    props.onSearch(event);
-  } */
-  //const {search, onSearch} = props;
-  return (<div>
-    <label htmlFor="search">Search:</label>
-    <input id="search"
-      type="text"
-      value={search}
-      onChange={onSearch} />
+  React.useEffect(() => {
+    if (isFocused && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isFocused]);
 
-    {/* <p>
-      Searching for <strong>{searchTerm}</strong>
-    </p> */}
-  </div>);
-}
+  return (
+    <>
+      <label htmlFor={id}>{children}</label>
+      &nbsp;
+      <input
+        id={id}
+        ref={inputRef}
+        type={type}
+        value={value}
+        onChange={onInputChange}
+      />
+    </>
+  );
+};
 
-const List = ({ list }) => {
-  //console.log('List renders');
-  return <ul>
-    {list.map(({ objectID, ...item }) => (
-      <Item key={objectID} {...item} />
+const List = ({ list, onRemoveItem }) => (
+  <ul>
+    {list.map((item) => (
+      <Item
+        key={item.objectID}
+        item={item}
+        onRemoveItem={onRemoveItem}
+      />
     ))}
-  </ul>;
-}
+  </ul>
+);
 
-
-const Item = (
-  {
-    title,
-    url,
-    author,
-    num_comments,
-    points,
-  }
-) => (
+const Item = ({ item, onRemoveItem }) => (
   <li>
     <span>
-      <a href={url}>{title}</a>
+      <a href={item.url}>{item.title}</a>
     </span>
-    <span>{author}</span>
-    <span>{num_comments}</span>
-    <span>{points}</span>
+    <span>{item.author}</span>
+    <span>{item.num_comments}</span>
+    <span>{item.points}</span>
+    <span>
+      <button type="button" onClick={() => onRemoveItem(item)}>
+        Dismiss
+      </button>
+    </span>
   </li>
 );
+
 export default App;
-
-
